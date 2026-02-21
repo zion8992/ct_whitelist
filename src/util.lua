@@ -118,7 +118,7 @@ function ct_whitelist.is_whitelisted(name)
     if not name then return false end
 
     -- ALWAYS whitelist an owner
-    if name == settings:get("name") then return end
+    if name == core.settings:get("name") then return end
 
     -- privilege didn't do anything before
     if core.check_player_privs(name, "whitelist_bypass") then return true end
