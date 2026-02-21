@@ -1,6 +1,6 @@
-![Logo](https://github.com/zion8992/ct_whitelist/blob/main/logo.png)
+![Logo](https://github.com/zion8992/ct_whitelist/blob/main/screenshot.png)
 
-(Logo by Zion8992)
+*(Logo by Zion8992)*
 
 # Whitelist Live Mod for Minetest
 
