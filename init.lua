@@ -17,7 +17,6 @@ end -- just not enabling the mod
 
 local modpath = core.get_modpath(modname)
 local S = core.get_translator(modname)
-local storage = core.get_mod_storage()
 local list_file = core.get_worldpath() .. "/" .. ct_whitelist.file_name
 
 -- util and api
@@ -110,12 +109,12 @@ core.register_chatcommand("whitelist", {
 
 -- prejoin check (deny early)
 if core.register_on_prejoinplayer then
-    core.register_on_prejoinplayer(function(name, ip)
+    core.register_on_prejoinplayer(function(name)
         if not ct_whitelist.enabled then return end
-        name = normalize(name)
-        -- allow bypass priv if player has it (we can't check privs before join), so check when they attempt to join by name:
-        -- there is no player object yet; we must accept here unless name is not whitelisted.
-        if ct_whitelist.list[name] then return end
+        
+        -- check for whitelisting through mod func
+        if ct_whitelist.is_whitelisted(name) then return end
+
         return S("You are not whitelisted on this server.")
     end)
 else
@@ -126,7 +125,6 @@ else
 	    active_tab[pname] = "inventory" -- existing inventory override
 	    update_inventory(player)
 	end)
-    
 end
 
 local time = 0
