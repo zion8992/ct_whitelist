@@ -1,5 +1,6 @@
-![Logo](https://github.com/zion8992/ct_whitelist/blob/main/logo.png)
-Logo by Zion8992
+![Logo](https://content.luanti.org/uploads/e73a7f4555.png)
+
+*(Logo by Zion8992)*
 
 # Whitelist Live Mod for Minetest
 
@@ -13,6 +14,7 @@ A live-reload server whitelist mod for Minetest. Automatically prevents unlisted
 ## Features
 
 * Enforces a **per-world whitelist**.
+* Customizable **file name and delay**.
 * Automatically **auto-whitelists singleplayer**.
 * Provides **live reload** of `whitelist.txt` when the file changes.
 * Commands to manage the whitelist in-game:
@@ -47,7 +49,7 @@ A live-reload server whitelist mod for Minetest. Automatically prevents unlisted
 <world folder>/whitelist.txt
 ```
 
-4. Edit `whitelist.txt` to add one player per line. Lines starting with `#` are comments.
+4. Edit `whitelist.txt` to add one player per line. Lines starting with `#` are comments. File Name depends on settings you've set up.
    Example:
 
    ```
@@ -57,6 +59,7 @@ A live-reload server whitelist mod for Minetest. Automatically prevents unlisted
    ```
 
    Changes are automatically reloaded every ~5 seconds.
+   (It depends on settings you've set up too)
 
 ---
 
@@ -67,6 +70,7 @@ A live-reload server whitelist mod for Minetest. Automatically prevents unlisted
 * **Live reload**: Editing `whitelist.txt` triggers live reload; no server restart needed.
 * **Bypass privilege**: Grant `whitelist_bypass` to trusted players to skip whitelist checks.
 * **Checking status**: `/whitelist status` shows if the whitelist is enabled and the number of entries.
+* **Customizable**: Can be customized through settings.
 
 ---
 

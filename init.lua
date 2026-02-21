@@ -1,254 +1,144 @@
--- whitelist_live/init.lua
-local modname = minetest.get_current_modname()
-local storage = minetest.get_mod_storage()
+local settings = core.settings
 
--- state
-local WL = {
-    enabled = true,
-    list = {},                -- set: name->true
-    list_array = {},          -- ordered list for listing
-    src_file = minetest.get_worldpath() .. "/whitelist.txt",
-    file_mtime = nil,
-    check_interval = 5.0,
-    timer = 0,
+-- global variable
+local modname = core.get_current_modname()
+ct_whitelist = {
+    enabled = settings:get_bool(modname .. "_enabled", true),
+    list = {},
+    list_array = {},
+    file_name = settings:get(modname .. "_file_name") or "whitelist.txt",
+    check_interval = settings:get(modname .. "_delay") or 5.0,
+    file_func = nil
 }
 
--- utils
-local function normalize(name)
-    return (name or ""):lower():gsub("^%s*(.-)%s*$", "%1")
-end
+if core.is_singleplayer() then
+    return 
+end -- just not enabling the mod
 
-local function save_storage()
-    local o = { enabled = WL.enabled, list = WL.list_array }
-    storage:set_string("whitelist_live:state", minetest.serialize(o))
-end
+local modpath = core.get_modpath(modname)
+local S = core.get_translator(modname)
+local list_file = core.get_worldpath() .. "/" .. ct_whitelist.file_name
 
-local function load_storage()
-    local s = storage:get_string("whitelist_live:state")
-    if s and s ~= "" then
-        local ok, t = pcall(minetest.deserialize, s)
-        if ok and type(t) == "table" then
-            WL.enabled = (t.enabled == nil) and true or t.enabled
-            WL.list = {}
-            WL.list_array = {}
-            if type(t.list) == "table" then
-                for _,n in ipairs(t.list) do
-                    local nn = normalize(n)
-                    if nn ~= "" then
-                        WL.list[nn] = true
-                        table.insert(WL.list_array, nn)
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function set_from_array(arr)
-    WL.list = {}
-    WL.list_array = {}
-    if type(arr) == "table" then
-        for _,name in ipairs(arr) do
-            local nn = normalize(name)
-            if nn ~= "" and not WL.list[nn] then
-                WL.list[nn] = true
-                table.insert(WL.list_array, nn)
-            end
-        end
-    end
-    save_storage()
-end
-
--- file parsing
-local function read_whitelist_file(path)
-    local fh, err = io.open(path, "r")
-    if not fh then return nil, err end
-    local arr = {}
-    for line in fh:lines() do
-        line = line:match("^(.-)%s*$") or ""
-        if line:match("^%s*$") then -- skip blank
-        elseif line:match("^%s*#") then -- comment
-        else
-            local nn = normalize(line)
-            if nn ~= "" then table.insert(arr, nn) end
-        end
-    end
-    fh:close()
-    return arr
-end
-
-local function file_mtime(path)
-    local attr = nil
-    local ok, res = pcall(function() return assert(io.open(path,"r")) end)
-    if not ok then return nil end
-    -- Use Lua file: seek to end to approximate mtime not available; platform may not provide mtime.
-    -- Prefer to use lfs if available:
-    if rawget(_G, "lfs") and lfs.attributes then
-        local a = lfs.attributes(path)
-        if a and a.modification then return a.modification end
-    end
-    -- fallback: size+time trick (not perfect). We'll return file size + current time hash to force reload on change.
-    local fh = io.open(path,"r")
-    if not fh then return nil end
-    local content = fh:read("*a") or ""
-    fh:close()
-    return #content
-end
-
-local function reload_from_file()
-    if not WL.src_file then return false, "no file" end
-    local arr, err = read_whitelist_file(WL.src_file)
-    if not arr then return false, err end
-    set_from_array(arr)
-    minetest.log("action", "["..modname.."] whitelist reloaded from file ("..tostring(#arr).." entries)")
-    return true
-end
-
--- API
-local function add_name(name)
-    name = normalize(name)
-    if name == "" then return false end
-    if WL.list[name] then return false end
-    WL.list[name] = true
-    table.insert(WL.list_array, name)
-    save_storage()
-    return true
-end
-
-local function remove_name(name)
-    name = normalize(name)
-    if not WL.list[name] then return false end
-    WL.list[name] = nil
-    for i,n in ipairs(WL.list_array) do
-        if n == name then table.remove(WL.list_array, i); break end
-    end
-    save_storage()
-    return true
-end
-
-local function is_whitelisted(name)
-    if not name then return false end
-    return WL.list[normalize(name)] == true
-end
-
+-- util and api
+dofile(modpath .. "/src/util.lua")
 -- load initial storage
-load_storage()
+ct_whitelist.load_storage()
 
 -- attempt to load file initially if present
-if WL.src_file then
+if list_file then
     local ok, _ = pcall(function()
-        local fh = io.open(WL.src_file, "r")
+        local fh = io.open(list_file, "r")
         if fh then
             fh:close()
-            local mt = file_mtime(WL.src_file)
-            WL.file_mtime = mt
-            local arr, err = read_whitelist_file(WL.src_file)
-            if arr then set_from_array(arr) end
+            local mt = ct_whitelist.file_mtime(list_file)
+            ct_whitelist.file_func = mt
+            local arr, err = ct_whitelist.read_whitelist_file(list_file)
+            if arr then ct_whitelist.set_from_array(arr) end
         end
     end)
 end
 
 -- privileges
-minetest.register_privilege("whitelist_admin", {
-    description = "Can manage the whitelist (add/remove/reload/enable/disable)",
-    give_to_singleplayer = true,
+core.register_privilege("whitelist_admin", {
+    description = S("Can manage the whitelist"),
+    give_to_singleplayer = false,
+    give_to_admin = true
 })
-minetest.register_privilege("whitelist_bypass", {
-    description = "Bypass the whitelist (allowed to join even when whitelist enabled)",
-    give_to_singleplayer = true,
+core.register_privilege("whitelist_bypass", {
+    description = S("Bypass the whitelist"),
+    give_to_singleplayer = false,
+    give_to_admin = true
 })
 
 -- commands
-minetest.register_chatcommand("whitelist", {
+core.register_chatcommand("whitelist", {
     params = "<add|remove|list|reload|enable|disable|status> [name]",
-    description = "Manage server whitelist (live-reload from whitelist.txt supported).",
-    privs = { whitelist_admin = true },
+    description = S("Manage server whitelist"),
+    privs = {whitelist_admin = true},
     func = function(name, param)
-        local cmd, arg = param:match("^(%S+)%s*(.*)$")
-        if not cmd then
-            return false, "usage: /whitelist <add|remove|list|reload|enable|disable|status> [name]"
+        local action, player_name = param:match("^(%S+)%s*(.*)$")
+        if not action then
+            return false -- optimized
         end
-        cmd = cmd:lower()
-        if cmd == "add" then
-            if arg == "" then return false, "specify player name" end
-            if add_name(arg) then
-                return true, "Added "..arg.." to whitelist."
+        action = action:lower()
+
+        if action == "add" then
+            if player_name == "" then return false, S("Specify player name") end
+            if ct_whitelist.add_name(player_name) then
+                return true, S("Added @1 to @2.", player_name, ct_whitelist.file_name)
             else
-                return false, arg.." already in whitelist or invalid."
+                return false, S("@1 already in @2.", player_name, ct_whitelist.file_name)
             end
-        elseif cmd == "remove" then
-            if arg == "" then return false, "specify player name" end
-            if remove_name(arg) then
-                return true, "Removed "..arg.." from whitelist."
+
+        elseif action == "remove" then
+            if player_name == "" then return false, S("Specify player name") end
+            if ct_whitelist.remove_name(player_name) then
+                return true, S("Removed @1 from @2.", player_name, ct_whitelist.file_name)
             else
-                return false, arg.." not in whitelist."
+                return false, S("@1 not in @2.", player_name, ct_whitelist.file_name)
             end
-        elseif cmd == "list" then
-            if #WL.list_array == 0 then return true, "Whitelist is empty." end
-            return true, "Whitelist: "..table.concat(WL.list_array, ", ")
-        elseif cmd == "reload" then
-            if not WL.src_file then return false, "No whitelist.txt available to reload." end
-            local ok, err = reload_from_file()
-            if ok then return true, "Whitelist reloaded from file." else return false, "Reload failed: "..tostring(err) end
-        elseif cmd == "enable" then
-            WL.enabled = true; save_storage()
-            return true, "Whitelist enabled."
-        elseif cmd == "disable" then
-            WL.enabled = false; save_storage()
-            return true, "Whitelist disabled."
-        elseif cmd == "status" then
-            local s = "enabled="..tostring(WL.enabled).."; count="..tostring(#WL.list_array)
-            if WL.src_file then s = s .. "; file="..WL.src_file end
+
+        elseif action == "list" then
+            if #ct_whitelist.list_array == 0 then return true, S("Whitelist is empty.") end
+            return true, S("Whitelist: @1", table.concat(ct_whitelist.list_array, ", "))
+
+        elseif action == "reload" then
+            if not ct_whitelist.file_name then return false, S("No text file available to reload.") end
+            local ok, err = ct_whitelist.reload_from_file()
+            if ok then return true, S("Reloaded from @1.", ct_whitelist.file_name) else return false, S("Reload failed: @1", tostring(err)) end
+            
+        elseif action == "enable" then
+            ct_whitelist.enabled = true
+            ct_whitelist.save_storage()
+            return true, S("Whitelist enabled.")
+
+        elseif action == "disable" then
+            ct_whitelist.enabled = false
+            ct_whitelist.save_storage()
+            return true, S("Whitelist disabled.")
+
+        elseif action == "status" then
+            -- and why?
+            local s = "enabled="..tostring(ct_whitelist.enabled).."; count="..tostring(#ct_whitelist.list_array)
+            if list_file then s = s .. "; file="..list_file end
             return true, s
-        else
-            return false, "unknown command"
-        end
+
+        else return false end
     end
 })
 
 -- prejoin check (deny early)
-if minetest.register_on_prejoinplayer then
-    minetest.register_on_prejoinplayer(function(name, ip)
-        if not WL.enabled then return end
-        name = normalize(name)
-        -- allow bypass priv if player has it (we can't check privs before join), so check when they attempt to join by name:
-        -- there is no player object yet; we must accept here unless name is not whitelisted.
-        if WL.list[name] then return end
-        return "You are not whitelisted on this server."
+if core.register_on_prejoinplayer then
+    core.register_on_prejoinplayer(function(name)
+        if not ct_whitelist.enabled then return end
+        
+        -- check for whitelisting through mod func
+        if ct_whitelist.is_whitelisted(name) then return end
+
+        return S("You are not whitelisted on this server.")
     end)
 else
     -- fallback: kick on join if not allowed
-	minetest.register_on_joinplayer(function(player)
+	core.register_on_joinplayer(function(player)
 	    local pname = player:get_player_name()
-
-	    -- auto-whitelist singleplayer
-	    if minetest.is_singleplayer() then
-		if not WL.list[pname] then
-		    WL.list[pname] = true
-		    table.insert(WL.list_array, pname)
-		    save_storage()
-		    minetest.log("action", "["..modname.."] auto-whitelisted singleplayer: "..pname)
-		end
-	    end
 
 	    active_tab[pname] = "inventory" -- existing inventory override
 	    update_inventory(player)
 	end)
-    
 end
 
+local time = 0
 -- live reload: poll file mtime
-minetest.register_globalstep(function(dtime)
-    WL.timer = WL.timer + dtime
-    if WL.timer < WL.check_interval then return end
-    WL.timer = 0
-    if not WL.src_file then return end
-    local ok, mt = pcall(file_mtime, WL.src_file)
+core.register_globalstep(function(dtime)
+    time = time + dtime
+    if time < ct_whitelist.check_interval then return end
+    time = 0
+    if not list_file then return end
+    local ok, mt = pcall(file_func, list_file)
     if not ok then mt = nil end
-    if mt and WL.file_mtime ~= mt then
-        WL.file_mtime = mt
-        local ok2, err = reload_from_file()
-        if not ok2 then minetest.log("warning", "["..modname.."] live reload failed: "..tostring(err)) end
+    if mt and ct_whitelist.file_func ~= mt then
+        ct_whitelist.file_func = mt
+        local ok2, err = ct_whitelist.reload_from_file()
+        if not ok2 then core.log("warning", "["..modname.."] live reload failed: "..tostring(err)) end
     end
 end)
-
